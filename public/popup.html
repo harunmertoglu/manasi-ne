@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Manası Nedir</title>
+    <link rel="stylesheet" href="ui.css" />
+  </head>
+  <body class="popup">
+    <div class="brand">
+      <span class="mark">m.</span
+      ><span>MANASI NEDİR<small>BAĞLAMIN İÇİNDE</small></span>
+    </div>
+    <main>
+      <p class="eyebrow">OKU. SEÇ. ANLA.</p>
+      <h1>Her kelimenin<br />bir bağlamı var.</h1>
+      <p class="intro">
+        Sayfayı başlat, bir kelime seç.<br />Bu metinde ne anlama geldiğini
+        öğren.
+      </p>
+      <div class="status-box">
+        <p id="status" role="status" aria-live="polite">
+          Bağlantı kontrol ediliyor…
+        </p>
+      </div>
+      <button id="start" disabled>Bu sayfada başlat <span>↗</span></button
+      ><button id="stop" class="quiet" hidden>Bu sayfada durdur</button>
+      <p class="fine">
+        Bu sayfanın metni, kendi API anahtarınız kullanılarak Groq'a gönderilir.
+      </p>
+    </main>
+    <footer>
+      <span class="fine">GROQ · KENDİ ANAHTARINLA</span
+      ><button id="options">Ayarlar ↗</button>
+    </footer>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
