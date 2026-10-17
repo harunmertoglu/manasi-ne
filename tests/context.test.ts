@@ -64,3 +64,19 @@ it("splits a long paragraph without loss and accepts exactly 120000 characters",
   expect(chunkText(["a".repeat(120000)])).toHaveLength(10);
   expect(() => chunkText(["a".repeat(120001)])).toThrow();
 });
+
+it.each([
+  '<div contenteditable="true"><article><p>Private draft</p></article></div>',
+  "<div hidden><main><p>Private hidden content</p></main></div>",
+  '<div style="display:none"><main><p>Private hidden content</p></main></div>',
+  "<form><article><p>Private form text</p></article></form>",
+  "<nav><article>Only navigation links</article></nav>",
+])("never extracts semantic roots inside excluded ancestors: %s", (html) => {
+  document.body.innerHTML = html;
+  expect(() => extractPage(document)).toThrow();
+});
+it("falls back to visible articles when all main roots are excluded", () => {
+  document.body.innerHTML =
+    "<div hidden><main>Secret</main></div><article><p>Public article.</p></article>";
+  expect(extractPage(document).paragraphs).toEqual(["Public article."]);
+});

@@ -16,10 +16,25 @@ export function fingerprint(text: string): string {
 }
 export type TextBlock = { element: Element; text: string; nodes: Text[] };
 export function collectBlocks(doc: Document): TextBlock[] {
-  const mains = [...doc.querySelectorAll('main,[role="main"]')];
+  const eligibleRoot = (el: Element) => {
+    if (el.closest(excluded)) return false;
+    for (
+      let ancestor: Element | null = el;
+      ancestor;
+      ancestor = ancestor.parentElement
+    ) {
+      const style = doc.defaultView?.getComputedStyle(ancestor);
+      if (style?.display === "none" || style?.visibility === "hidden")
+        return false;
+    }
+    return true;
+  };
+  const mains = [...doc.querySelectorAll('main,[role="main"]')].filter(
+    eligibleRoot,
+  );
   const candidates = mains.length
     ? mains
-    : [...doc.querySelectorAll("article")];
+    : [...doc.querySelectorAll("article")].filter(eligibleRoot);
   const roots = (candidates.length ? candidates : [doc.body]).filter(
     (el, i, all) =>
       el && !all.some((other, j) => j !== i && other.contains(el)),

@@ -36,9 +36,22 @@ export class PageController {
   private matches(tabId: number, generation: string) {
     return this.generations.get(tabId) === generation;
   }
+  reserveStart(tabId: number): string {
+    const generation = crypto.randomUUID();
+    this.generations.set(tabId, generation);
+    return generation;
+  }
+  assertCurrent(tabId: number, generation: string): void {
+    if (!this.matches(tabId, generation))
+      throw new AppError(
+        "stale_context",
+        "İşlem durduruldu veya sayfa değişti. Yeniden başlatın.",
+      );
+  }
   async recover() {
     for (const record of await this.store.all()) {
-      this.generations.set(record.state.tabId, record.state.generation);
+      if (!this.generations.has(record.state.tabId))
+        this.generations.set(record.state.tabId, record.state.generation);
       if (record.state.status === "preparing")
         await this.store.update(record.state.tabId, (r) =>
           r
@@ -57,18 +70,22 @@ export class PageController {
   async status(tabId: number): Promise<PageState | null> {
     return (await this.store.get(tabId))?.state ?? null;
   }
-  async start(tabId: number, input: PageContent): Promise<Result<PageState>> {
+  async start(
+    tabId: number,
+    input: PageContent,
+    generation = this.reserveStart(tabId),
+  ): Promise<Result<PageState>> {
     try {
+      this.assertCurrent(tabId, generation);
       const page = validatePage(input);
       const chunks = chunkText(page.paragraphs);
       const settings = await this.settings();
+      this.assertCurrent(tabId, generation);
       if (!settings?.validated)
         throw new AppError(
           "missing_key",
           "Önce ayarlardan Groq anahtarını bağlayıp doğrulayın.",
         );
-      const generation = crypto.randomUUID();
-      this.generations.set(tabId, generation);
       const state: PageState = {
         tabId,
         generation,
@@ -78,9 +95,10 @@ export class PageController {
         updatedAt: Date.now(),
         progress: `0 / ${chunks.length} bölüm`,
       };
-      await this.store.update(tabId, () =>
-        this.matches(tabId, generation) ? { state, cache: [] } : null,
+      await this.store.update(tabId, (record) =>
+        this.matches(tabId, generation) ? { state, cache: [] } : record,
       );
+      this.assertCurrent(tabId, generation);
       void this.prepare(state, chunks, this.factory(settings));
       return { ok: true, value: state };
     } catch (error) {
@@ -129,7 +147,11 @@ export class PageController {
           : r,
       );
       const state = await this.status(tabId);
-      if (state?.generation === generation && state.status === "ready")
+      if (
+        state?.generation === generation &&
+        state.status === "ready" &&
+        this.matches(tabId, generation)
+      )
         await this.notify(state);
     } catch (error) {
       const result = failure(error);
@@ -152,14 +174,19 @@ export class PageController {
         .catch(() => {});
     }
   }
-  async stop(tabId: number) {
-    this.generations.set(tabId, crypto.randomUUID());
-    await this.store.update(tabId, () => null);
+  async stop(
+    tabId: number,
+    generation = this.reserveStart(tabId),
+  ): Promise<boolean> {
+    await this.store.update(tabId, (record) =>
+      this.matches(tabId, generation) ? null : record,
+    );
+    return this.matches(tabId, generation);
   }
   async invalidate(tabId: number) {
-    this.generations.set(tabId, crypto.randomUUID());
+    const generation = this.reserveStart(tabId);
     await this.store.update(tabId, (r) =>
-      r
+      r && this.matches(tabId, generation)
         ? {
             state: {
               ...r.state,
@@ -170,12 +197,27 @@ export class PageController {
             },
             cache: [],
           }
-        : null,
+        : r,
     );
   }
-  async stopAll() {
-    for (const record of await this.store.all())
-      await this.stop(record.state.tabId);
+  async stopAll(): Promise<number[]> {
+    // Reserve cancellation tokens before the first await, including starts that
+    // are waiting for extraction/settings and have not reached storage yet.
+    const tokens = new Map(
+      [...this.generations.keys()].map((tabId) => [
+        tabId,
+        this.reserveStart(tabId),
+      ]),
+    );
+    for (const record of await this.store.all()) {
+      const tabId = record.state.tabId;
+      if (!this.generations.has(tabId))
+        tokens.set(tabId, this.reserveStart(tabId));
+    }
+    const stopped: number[] = [];
+    for (const [tabId, token] of tokens)
+      if (await this.stop(tabId, token)) stopped.push(tabId);
+    return stopped;
   }
   async explain(
     tabId: number,
@@ -195,6 +237,7 @@ export class PageController {
           "Sayfa bağlamı hazır değil veya değişti. Eklentiyi yeniden başlatın.",
         );
       const settings = await this.settings();
+      this.assertCurrent(tabId, generation);
       if (!settings?.validated)
         throw new AppError(
           "missing_key",

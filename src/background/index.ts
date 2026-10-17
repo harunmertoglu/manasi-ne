@@ -53,18 +53,19 @@ async function deactivate(tabId: number) {
   await chrome.tabs.sendMessage(tabId, { type: "DEACTIVATE" }).catch(() => {});
 }
 async function clearAll() {
-  const all = await chrome.storage.session.get(null);
-  for (const key of Object.keys(all)) {
-    if (key.startsWith("page:")) {
-      const tabId = Number(key.slice(5));
-      await controller.stop(tabId);
-      await deactivate(tabId);
-    }
-  }
+  for (const tabId of await controller.stopAll()) await deactivate(tabId);
 }
 async function handle(raw: unknown, sender: chrome.runtime.MessageSender) {
-  await initialized;
   const message = authorizeMessage(raw, sender, chrome.runtime.id);
+  // Cancellation order follows message arrival, including initialization and
+  // asynchronous tab reads, rather than whichever request finishes first.
+  const generation =
+    message.type === "START" || message.type === "STOP"
+      ? controller.reserveStart(message.tabId)
+      : undefined;
+  const clearing =
+    message.type === "CLEAR_SETTINGS" ? controller.stopAll() : undefined;
+  await initialized;
   switch (message.type) {
     case "SETTINGS_STATUS": {
       const saved = await settings.getSettings();
@@ -90,12 +91,14 @@ async function handle(raw: unknown, sender: chrome.runtime.MessageSender) {
       return { ok: true, value: null };
     case "CLEAR_SETTINGS":
       await settings.clearSettings();
-      await clearAll();
+      for (const tabId of await clearing!) await deactivate(tabId);
       return { ok: true, value: null };
     case "STATUS":
       return { ok: true, value: await controller.status(message.tabId) };
     case "START": {
+      controller.assertCurrent(message.tabId, generation!);
       const tab = await chrome.tabs.get(message.tabId);
+      controller.assertCurrent(message.tabId, generation!);
       if (
         !/^https?:\/\//.test(tab.url ?? "") ||
         /\.pdf(?:[?#]|$)/i.test(tab.url ?? "") ||
@@ -108,6 +111,7 @@ async function handle(raw: unknown, sender: chrome.runtime.MessageSender) {
           "Bu sayfa desteklenmiyor. Normal bir web sayfasında deneyin.",
         );
       await deactivate(message.tabId);
+      controller.assertCurrent(message.tabId, generation!);
       let response;
       try {
         response = await chrome.tabs.sendMessage(message.tabId, {
@@ -119,6 +123,7 @@ async function handle(raw: unknown, sender: chrome.runtime.MessageSender) {
           "Sayfa okunamadı. Sayfayı yenileyip yeniden deneyin.",
         );
       }
+      controller.assertCurrent(message.tabId, generation!);
       if (!response?.ok)
         throw new AppError(
           response?.code ?? "empty_page",
@@ -127,11 +132,11 @@ async function handle(raw: unknown, sender: chrome.runtime.MessageSender) {
       const page = validatePage(response.value);
       if (page.url !== tab.url)
         throw new AppError("stale_context", "Sayfa değişti. Yeniden başlatın.");
-      return await controller.start(message.tabId, page);
+      return await controller.start(message.tabId, page, generation);
     }
     case "STOP":
-      await controller.stop(message.tabId);
-      await deactivate(message.tabId);
+      if (await controller.stop(message.tabId, generation))
+        await deactivate(message.tabId);
       return { ok: true, value: null };
     case "INVALIDATE": {
       const tabId = sender.tab!.id!;
@@ -155,14 +160,14 @@ chrome.runtime.onMessage.addListener((raw, sender, respond) => {
   return true;
 });
 chrome.tabs.onRemoved.addListener((tabId) => {
-  void initialized.then(() => controller.stop(tabId)).catch(() => {});
+  void controller.stop(tabId).catch(() => {});
 });
 chrome.tabs.onUpdated.addListener((tabId, change) => {
   if (change.status === "loading" || change.url)
-    void initialized
-      .then(async () => {
-        await controller.stop(tabId);
-        await deactivate(tabId);
+    void controller
+      .stop(tabId)
+      .then(async (stopped) => {
+        if (stopped) await deactivate(tabId);
       })
       .catch(() => {});
 });

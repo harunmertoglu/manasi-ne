@@ -159,3 +159,88 @@ it("reports provider failure without getting stuck preparing", async () => {
   );
   expect((await controller.status(1))?.error).not.toContain("sensitive");
 });
+
+it("cancels a start stopped while settings are still loading", async () => {
+  const area = memoryArea();
+  let resolveSettings!: (v: any) => void;
+  let summaries = 0;
+  const controller = new PageController(
+    area,
+    () => new Promise((r) => (resolveSettings = r)),
+    () => ({
+      summarize: async () => {
+        summaries++;
+        return "topic";
+      },
+      explain: async () => meaning,
+    }),
+  );
+  const pending = controller.start(1, page);
+  await controller.stop(1);
+  resolveSettings({ apiKey: "k", model: "m", validated: true });
+  expect(await pending).toMatchObject({ ok: false, code: "stale_context" });
+  expect(await controller.status(1)).toBeNull();
+  expect(summaries).toBe(0);
+});
+it("global cleanup cancels starts not yet persisted", async () => {
+  const area = memoryArea();
+  let resolveSettings!: (v: any) => void;
+  let summaries = 0;
+  const controller = new PageController(
+    area,
+    () => new Promise((r) => (resolveSettings = r)),
+    () => ({
+      summarize: async () => {
+        summaries++;
+        return "topic";
+      },
+      explain: async () => meaning,
+    }),
+  );
+  const pending = controller.start(1, page);
+  await controller.stopAll();
+  resolveSettings({ apiKey: "k", model: "m", validated: true });
+  expect(await pending).toMatchObject({ ok: false, code: "stale_context" });
+  expect(summaries).toBe(0);
+});
+it("a reserved router start cannot revive a page stopped before extraction completes", async () => {
+  const { controller } = setup();
+  const token = controller.reserveStart(1);
+  await controller.stop(1);
+  expect(await controller.start(1, page, token)).toMatchObject({
+    ok: false,
+    code: "stale_context",
+  });
+  expect(await controller.status(1)).toBeNull();
+});
+
+it("does not send an explanation canceled during the settings lookup", async () => {
+  const area = memoryArea();
+  let deferred = false,
+    resolveSettings!: (v: any) => void,
+    calls = 0;
+  const settings = { apiKey: "k", model: "m", validated: true };
+  const controller = new PageController(
+    area,
+    () =>
+      deferred
+        ? new Promise((r) => (resolveSettings = r))
+        : Promise.resolve(settings),
+    () => ({
+      summarize: async () => "topic",
+      explain: async () => {
+        calls++;
+        return meaning;
+      },
+    }),
+  );
+  await controller.start(1, page);
+  const state = await ready(controller);
+  deferred = true;
+  const work = controller.explain(1, state.generation, selection);
+  await vi.waitFor(() => expect(resolveSettings).toBeTypeOf("function"));
+  await controller.stop(1);
+  resolveSettings(settings);
+  expect(await work).toMatchObject({ ok: false, code: "stale_context" });
+  expect(calls).toBe(0);
+});
