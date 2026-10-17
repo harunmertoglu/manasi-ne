@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { GroqClient } from "../src/groq/client";
+import { GroqClient, isFreeOpenRouterModel } from "../src/groq/client";
 const settings = {
   apiKey: "private-key",
   model: "chosen-model",
@@ -185,4 +185,128 @@ it("normalizes only surrounding whitespace in a pasted API key", async () => {
   );
   await client.listModels();
   expect(authorization).toBe("Bearer example-key");
+});
+
+it("supports Google Gemini OpenAI-compatible endpoint and strips models/ prefix", async () => {
+  const urls: string[] = [];
+  let sentModel = "";
+  const client = new GroqClient(
+    {
+      provider: "gemini",
+      apiKey: "AIzaSyExampleKey",
+      model: "models/gemini-2.5-flash",
+      validated: true,
+    },
+    async (url, init) => {
+      urls.push(String(url));
+      if (String(url).endsWith("/models")) {
+        return new Response(
+          JSON.stringify({
+            object: "list",
+            data: [
+              {
+                id: "models/gemini-2.5-flash",
+                display_name: "Gemini 2.5 Flash",
+              },
+            ],
+          }),
+        );
+      }
+      const body = JSON.parse(String(init?.body));
+      sentModel = body.model;
+      return completion('{"ok":true}');
+    },
+  );
+  const models = await client.listModels();
+  expect(models).toEqual([
+    { id: "gemini-2.5-flash", label: "gemini-2.5-flash (Gemini 2.5 Flash)" },
+  ]);
+  await client.verify();
+  expect(urls[0]).toBe(
+    "https://generativelanguage.googleapis.com/v1beta/openai/models",
+  );
+  expect(urls[2]).toBe(
+    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+  );
+  expect(sentModel).toBe("gemini-2.5-flash");
+});
+
+it("filters OpenRouter models strictly to free models and blocks paid models", async () => {
+  expect(isFreeOpenRouterModel("openrouter/free")).toBe(true);
+  expect(
+    isFreeOpenRouterModel("meta-llama/llama-3.3-70b-instruct:free", {
+      prompt: "0",
+      completion: "0",
+    }),
+  ).toBe(true);
+  expect(isFreeOpenRouterModel("openai/gpt-4o")).toBe(false);
+  expect(
+    isFreeOpenRouterModel("spoofed/model:free", {
+      prompt: "0.0001",
+      completion: "0",
+    }),
+  ).toBe(false);
+
+  const client = new GroqClient(
+    {
+      provider: "openrouter",
+      apiKey: "sk-or-v1-example",
+      model: "meta-llama/llama-3.3-70b-instruct:free",
+      validated: true,
+    },
+    async (url) => {
+      if (String(url).endsWith("/models")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "meta-llama/llama-3.3-70b-instruct:free",
+                name: "Llama 3.3 70B Free",
+                pricing: { prompt: "0", completion: "0" },
+              },
+              {
+                id: "openai/gpt-4o",
+                name: "GPT-4o",
+                pricing: { prompt: "0.0025", completion: "0.01" },
+              },
+              {
+                id: "bad-free:free",
+                pricing: { prompt: "0.001", completion: "0" },
+              },
+            ],
+          }),
+        );
+      }
+      return completion("```json\n{\"ok\":true}\n```");
+    },
+  );
+  const models = await client.listModels();
+  expect(models).toEqual([
+    {
+      id: "meta-llama/llama-3.3-70b-instruct:free",
+      label: "meta-llama/llama-3.3-70b-instruct:free (Llama 3.3 70B Free)",
+    },
+  ]);
+  await expect(client.verify()).resolves.toBeUndefined();
+
+  let paidCalls = 0;
+  const paidClient = new GroqClient(
+    {
+      provider: "openrouter",
+      apiKey: "sk-or-v1-example",
+      model: "openai/gpt-4o",
+      validated: true,
+    },
+    async () => {
+      paidCalls++;
+      return completion('{"summary":"nope"}');
+    },
+  );
+  await expect(paidClient.verify()).rejects.toMatchObject({
+    code: "unsupported_model",
+  });
+  await expect(paidClient.summarize("text")).rejects.toMatchObject({
+    code: "unsupported_model",
+  });
+  expect(paidCalls).toBe(0);
 });

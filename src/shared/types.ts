@@ -1,3 +1,6 @@
+export type ProviderId = "groq" | "gemini" | "openrouter" | "chatgpt";
+export type ApiKeyProviderId = "groq" | "gemini" | "openrouter";
+
 export type PageContent = {
   url: string;
   title: string;
@@ -16,7 +19,49 @@ export type Meaning = {
   explanation: string;
   turkishEquivalent?: string;
 };
-export type Settings = { apiKey: string; model: string; validated: boolean };
+
+export type ApiKeyProviderSettings = {
+  provider?: ApiKeyProviderId;
+  apiKey: string;
+  model: string;
+  validated: boolean;
+};
+
+export type GroqSettings = ApiKeyProviderSettings & { provider: "groq" };
+export type GeminiSettings = ApiKeyProviderSettings & { provider: "gemini" };
+export type OpenRouterSettings = ApiKeyProviderSettings & {
+  provider: "openrouter";
+};
+
+export type ChatGPTSettings = {
+  provider: "chatgpt";
+  accountId: string;
+  model: string;
+  validated: boolean;
+};
+
+export type Settings = ApiKeyProviderSettings | ChatGPTSettings;
+
+export interface ProviderStatusInfo {
+  configured: boolean;
+  model?: string;
+}
+
+export interface SettingsStatus {
+  configured: boolean;
+  provider: ProviderId;
+  model?: string;
+  accountId?: string;
+  groq: ProviderStatusInfo;
+  gemini: ProviderStatusInfo;
+  openrouter: ProviderStatusInfo;
+  chatgpt: {
+    configured: boolean;
+    model?: string;
+    accountId?: string;
+  };
+}
+
 export type PageStatus = "preparing" | "ready" | "stale" | "error";
 export type PageState = {
   tabId: number;
@@ -29,8 +74,9 @@ export type PageState = {
   progress?: string;
 };
 export type Result<T> =
-  { ok: true; value: T } | { ok: false; code: string; message: string };
-export type ModelOption = { id: string };
+  | { ok: true; value: T }
+  | { ok: false; code: string; message: string };
+export type ModelOption = { id: string; label?: string };
 export class AppError extends Error {
   constructor(
     public code: string,

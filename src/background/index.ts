@@ -1,14 +1,17 @@
+import { ChatGPTBridgeError, ChatGPTNativeBridge } from "../chatgpt/bridge";
+import { ChatGPTClient } from "../chatgpt/client";
 import { GroqClient } from "../groq/client";
-import { SettingsStore } from "./settings";
-import { PageController } from "./controller";
 import { authorizeMessage, validatePage } from "../shared/messages";
-import {
-  AppError,
-  failure,
-  type PageState,
-  type Settings,
-} from "../shared/types";
-const settings = new SettingsStore(chrome.storage.local);
+import { AppError, failure, type Settings } from "../shared/types";
+import { PageController } from "./controller";
+import { SettingsStore } from "./settings";
+
+const chatGptBridge = new ChatGPTNativeBridge();
+const settings = new SettingsStore(
+  chrome.storage.local,
+  (s) => new GroqClient(s),
+  (s) => new ChatGPTClient(s, chatGptBridge),
+);
 // Only keep a worker alive while a user-initiated API operation is pending.
 async function activeRequest<T>(run: () => Promise<T>): Promise<T> {
   const heartbeat = setInterval(() => {
@@ -20,12 +23,25 @@ async function activeRequest<T>(run: () => Promise<T>): Promise<T> {
     clearInterval(heartbeat);
   }
 }
+async function wrapBridge<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await activeRequest(run);
+  } catch (error) {
+    if (error instanceof ChatGPTBridgeError) {
+      throw new AppError(error.code, error.message);
+    }
+    throw error;
+  }
+}
 const client = (s: Settings) => {
-  const groq = new GroqClient(s);
+  const impl =
+    s.provider === "chatgpt"
+      ? new ChatGPTClient(s, chatGptBridge)
+      : new GroqClient(s);
   return {
-    summarize: (text: string) => activeRequest(() => groq.summarize(text)),
+    summarize: (text: string) => activeRequest(() => impl.summarize(text)),
     explain: (...args: Parameters<GroqClient["explain"]>) =>
-      activeRequest(() => groq.explain(...args)),
+      activeRequest(() => impl.explain(...args)),
   };
 };
 const controller = new PageController(
@@ -44,7 +60,7 @@ const controller = new PageController(
 );
 const initialized = (async () => {
   await settings.initialize();
-  await chrome.storage.session.setAccessLevel({
+  await chrome.storage.session.setAccessLevel?.({
     accessLevel: "TRUSTED_CONTEXTS",
   });
   await controller.recover();
@@ -64,35 +80,86 @@ async function handle(raw: unknown, sender: chrome.runtime.MessageSender) {
       ? controller.reserveStart(message.tabId)
       : undefined;
   const clearing =
-    message.type === "CLEAR_SETTINGS" ? controller.stopAll() : undefined;
+    message.type === "CLEAR_SETTINGS" || message.type === "CHATGPT_SIGN_OUT"
+      ? controller.stopAll()
+      : undefined;
   await initialized;
   switch (message.type) {
-    case "SETTINGS_STATUS": {
-      const saved = await settings.getSettings();
-      return { ok: true, value: { configured: !!saved, model: saved?.model } };
-    }
+    case "SETTINGS_STATUS":
+      return { ok: true, value: await settings.getStatus() };
     case "LIST_MODELS": {
-      const saved = await settings.getSettings();
+      const provider = message.provider ?? "groq";
+      const saved = await settings.getSavedApiKeySettings(provider);
       const apiKey = message.apiKey || saved?.apiKey;
       if (!apiKey)
-        throw new AppError("missing_key", "Groq API anahtarınızı girin.");
+        throw new AppError("missing_key", "Önce kendi API anahtarınızı girin.");
       return {
         ok: true,
         value: await activeRequest(() =>
-          new GroqClient({ apiKey, model: "", validated: false }).listModels(),
+          new GroqClient({
+            provider,
+            apiKey,
+            model: "",
+            validated: false,
+          }).listModels(),
         ),
       };
     }
-    case "SAVE_SETTINGS":
+    case "SAVE_SETTINGS": {
+      const provider = message.provider ?? "groq";
       await activeRequest(() =>
-        settings.validateAndSaveSettings(message.apiKey, message.model),
+        settings.validateAndSaveApiKeySettings(
+          provider,
+          message.apiKey,
+          message.model,
+        ),
       );
       await clearAll();
       return { ok: true, value: null };
+    }
     case "CLEAR_SETTINGS":
-      await settings.clearSettings();
+      await settings.clearApiKeySettings(message.provider);
       for (const tabId of await clearing!) await deactivate(tabId);
       return { ok: true, value: null };
+    case "SELECT_PROVIDER": {
+      const before = await settings.getSettings();
+      const after = await settings.selectProvider(message.provider);
+      if (
+        before?.provider !== after?.provider ||
+        before?.model !== after?.model
+      ) {
+        await clearAll();
+      }
+      return { ok: true, value: await settings.getStatus() };
+    }
+    case "CHATGPT_HELPER_STATUS":
+      return { ok: true, value: await wrapBridge(() => chatGptBridge.status()) };
+    case "CHATGPT_SIGN_IN":
+      return { ok: true, value: await wrapBridge(() => chatGptBridge.signIn()) };
+    case "CHATGPT_LIST_MODELS":
+      return {
+        ok: true,
+        value: await wrapBridge(() =>
+          chatGptBridge.listModels(message.accountId),
+        ),
+      };
+    case "SAVE_CHATGPT_SETTINGS":
+      await activeRequest(() =>
+        settings.validateAndSaveChatGPTSettings(
+          message.accountId,
+          message.model,
+        ),
+      );
+      await clearAll();
+      return { ok: true, value: null };
+    case "CHATGPT_SIGN_OUT": {
+      const status = await wrapBridge(() =>
+        chatGptBridge.signOut(message.accountId),
+      );
+      await settings.clearChatGPTSettings(message.accountId);
+      for (const tabId of await clearing!) await deactivate(tabId);
+      return { ok: true, value: status };
+    }
     case "STATUS":
       return { ok: true, value: await controller.status(message.tabId) };
     case "START": {

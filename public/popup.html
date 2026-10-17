@@ -25,12 +25,12 @@
       </div>
       <button id="start" disabled>Bu sayfada başlat <span>↗</span></button
       ><button id="stop" class="quiet" hidden>Bu sayfada durdur</button>
-      <p class="fine">
-        Bu sayfanın metni, kendi API anahtarınız kullanılarak Groq'a gönderilir.
+      <p class="fine" id="provider-note">
+        Bu sayfanın metni, seçtiğin sağlayıcı üzerinden işlenir.
       </p>
     </main>
     <footer>
-      <span class="fine">GROQ · KENDİ ANAHTARINLA</span
+      <span class="fine" id="provider-badge">GROQ · KENDİ ANAHTARINLA</span
       ><button id="options">Ayarlar ↗</button>
     </footer>
     <script type="module" src="popup.js"></script>

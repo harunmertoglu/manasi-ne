@@ -1,4 +1,10 @@
-import { AppError, type SelectionContext, type PageContent } from "./types";
+import {
+  AppError,
+  type ApiKeyProviderId,
+  type PageContent,
+  type ProviderId,
+  type SelectionContext,
+} from "./types";
 type Sender = {
   id?: string;
   url?: string;
@@ -7,11 +13,29 @@ type Sender = {
 };
 export type Message =
   | { type: "START" | "STOP" | "STATUS"; tabId: number }
-  | { type: "SETTINGS_STATUS" | "CLEAR_SETTINGS" }
-  | { type: "LIST_MODELS"; apiKey: string }
-  | { type: "SAVE_SETTINGS"; apiKey: string; model: string }
+  | { type: "SETTINGS_STATUS" | "CHATGPT_HELPER_STATUS" | "CHATGPT_SIGN_IN" }
+  | { type: "CLEAR_SETTINGS"; provider?: ApiKeyProviderId }
+  | { type: "LIST_MODELS"; provider?: ApiKeyProviderId; apiKey: string }
+  | {
+      type: "SAVE_SETTINGS";
+      provider?: ApiKeyProviderId;
+      apiKey: string;
+      model: string;
+    }
+  | { type: "SELECT_PROVIDER"; provider: ProviderId }
+  | { type: "CHATGPT_LIST_MODELS" | "CHATGPT_SIGN_OUT"; accountId?: string }
+  | { type: "SAVE_CHATGPT_SETTINGS"; accountId: string; model: string }
   | { type: "INVALIDATE"; generation: string }
   | { type: "EXPLAIN"; generation: string; selection: SelectionContext };
+
+export function isApiKeyProviderId(value: unknown): value is ApiKeyProviderId {
+  return value === "groq" || value === "gemini" || value === "openrouter";
+}
+
+export function isProviderId(value: unknown): value is ProviderId {
+  return isApiKeyProviderId(value) || value === "chatgpt";
+}
+
 const bad = () => {
   throw new AppError(
     "invalid_message",
@@ -41,15 +65,65 @@ export function authorizeMessage(
     /^https?:\/\//.test(sender.url ?? "");
   switch (m.type) {
     case "SAVE_SETTINGS":
-      if (!options || !str(m.apiKey, 1024, true) || !str(m.model, 200))
+      if (
+        !options ||
+        !str(m.apiKey, 1024, true) ||
+        !str(m.model, 200) ||
+        (m.provider !== undefined && !isApiKeyProviderId(m.provider))
+      )
         return bad();
-      return { type: m.type, apiKey: m.apiKey.trim(), model: m.model };
+      return m.provider
+        ? {
+            type: m.type,
+            provider: m.provider,
+            apiKey: m.apiKey.trim(),
+            model: m.model,
+          }
+        : { type: m.type, apiKey: m.apiKey.trim(), model: m.model };
     case "LIST_MODELS":
-      if (!options || !str(m.apiKey, 1024, true)) return bad();
-      return { type: m.type, apiKey: m.apiKey.trim() };
+      if (
+        !options ||
+        !str(m.apiKey, 1024, true) ||
+        (m.provider !== undefined && !isApiKeyProviderId(m.provider))
+      )
+        return bad();
+      return m.provider
+        ? { type: m.type, provider: m.provider, apiKey: m.apiKey.trim() }
+        : { type: m.type, apiKey: m.apiKey.trim() };
     case "CLEAR_SETTINGS":
+      if (
+        !options ||
+        (m.provider !== undefined && !isApiKeyProviderId(m.provider))
+      )
+        return bad();
+      return m.provider
+        ? { type: m.type, provider: m.provider }
+        : { type: m.type };
+    case "SELECT_PROVIDER":
+      if (!options || !isProviderId(m.provider)) return bad();
+      return { type: m.type, provider: m.provider };
+    case "CHATGPT_HELPER_STATUS":
+    case "CHATGPT_SIGN_IN":
       if (!options) return bad();
       return { type: m.type };
+    case "CHATGPT_LIST_MODELS":
+    case "CHATGPT_SIGN_OUT":
+      if (
+        !options ||
+        (m.accountId !== undefined && !str(m.accountId, 128, true))
+      )
+        return bad();
+      return m.accountId?.trim()
+        ? { type: m.type, accountId: m.accountId.trim() }
+        : { type: m.type };
+    case "SAVE_CHATGPT_SETTINGS":
+      if (!options || !str(m.accountId, 128) || !str(m.model, 200))
+        return bad();
+      return {
+        type: m.type,
+        accountId: m.accountId.trim(),
+        model: m.model.trim(),
+      };
     case "SETTINGS_STATUS":
       if (!options && !popup) return bad();
       return { type: m.type };

@@ -1,8 +1,8 @@
 import { beforeEach, expect, it } from "vitest";
-import { extractPage } from "../src/context/extract";
-import { chunkText } from "../src/context/chunks";
-import { resolveSelection } from "../src/context/selection";
 import { cacheKey } from "../src/context/cache";
+import { chunkText } from "../src/context/chunks";
+import { extractPage } from "../src/context/extract";
+import { resolveSelection } from "../src/context/selection";
 beforeEach(() => {
   document.body.innerHTML = "";
 });
@@ -46,6 +46,15 @@ it("resolves the actual second occurrence and derives a different cache key", ()
   const page = extractPage(document);
   expect(cacheKey(page, selection, "m")).not.toBe(
     cacheKey(page, { ...selection, paragraphIndex: 0, startOffset: 0 }, "m"),
+  );
+  expect(cacheKey(page, selection, "m", "groq")).not.toBe(
+    cacheKey(page, selection, "m", "gemini"),
+  );
+  expect(cacheKey(page, selection, "m", "openrouter")).not.toBe(
+    cacheKey(page, selection, "m", "chatgpt", "acct_1"),
+  );
+  expect(cacheKey(page, selection, "m", "chatgpt", "acct_1")).not.toBe(
+    cacheKey(page, selection, "m", "chatgpt", "acct_2"),
   );
 });
 it("rejects selections outside the main content and longer than 200 characters", () => {

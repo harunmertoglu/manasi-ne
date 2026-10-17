@@ -1,33 +1,97 @@
 import {
   AppError,
-  type Settings,
+  type ApiKeyProviderId,
+  type ApiKeyProviderSettings,
+  type Meaning,
   type ModelOption,
   type PageContent,
   type SelectionContext,
-  type Meaning,
 } from "../shared/types";
-import { summaryPrompt, meaningPrompt } from "./prompts";
-import { parseJSON, parseMeaning } from "./schema";
-const API = "https://api.groq.com/openai/v1";
+import { meaningPrompt, summaryPrompt, verifyPrompt } from "./prompts";
+import { parseJSON, parseMeaning, parseSummary } from "./schema";
+
+export const API_PROVIDER_BASE_URLS: Record<ApiKeyProviderId, string> = {
+  groq: "https://api.groq.com/openai/v1",
+  gemini: "https://generativelanguage.googleapis.com/v1beta/openai",
+  openrouter: "https://openrouter.ai/api/v1",
+};
+
+const PROVIDER_LABELS: Record<ApiKeyProviderId, string> = {
+  groq: "Groq",
+  gemini: "Gemini",
+  openrouter: "OpenRouter",
+};
+
+export function normalizeApiKey(raw: string): string {
+  const apiKey = raw.trim();
+  if (!apiKey || !/^[\x21-\x7e]+$/.test(apiKey)) {
+    throw new AppError(
+      "invalid_key_format",
+      "API anahtarının biçimi geçersiz. Yalnızca anahtarın kendisini kopyalayın; boşluk, satır sonu veya Türkçe karakter içermemeli.",
+    );
+  }
+  return apiKey;
+}
+
+export function normalizeProviderModelId(
+  provider: ApiKeyProviderId,
+  modelId: string,
+): string {
+  const trimmed = modelId.trim();
+  if (provider === "gemini") {
+    return trimmed.replace(/^models\//, "");
+  }
+  return trimmed;
+}
+
+export function isFreeOpenRouterModel(
+  modelId: string,
+  pricing?: { prompt?: unknown; completion?: unknown; request?: unknown },
+): boolean {
+  const trimmed = modelId.trim();
+  if (trimmed !== "openrouter/free" && !trimmed.endsWith(":free")) {
+    return false;
+  }
+  if (pricing && typeof pricing === "object") {
+    for (const key of ["prompt", "completion", "request"] as const) {
+      const raw = pricing[key];
+      if (raw !== undefined && raw !== null && raw !== "") {
+        const num = Number(raw);
+        if (!Number.isFinite(num) || num !== 0) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
 export class GroqClient {
   constructor(
-    private settings: Settings,
+    private settings: ApiKeyProviderSettings,
     private fetcher: typeof fetch = fetch,
   ) {}
+
+  private get provider(): ApiKeyProviderId {
+    return this.settings.provider ?? "groq";
+  }
+
+  private get baseUrl(): string {
+    return API_PROVIDER_BASE_URLS[this.provider];
+  }
+
+  private get providerLabel(): string {
+    return PROVIDER_LABELS[this.provider];
+  }
+
   private async request(path: string, body?: unknown): Promise<any> {
-    const apiKey = this.settings.apiKey.trim();
-    if (!apiKey || !/^[\x21-\x7e]+$/.test(apiKey)) {
-      throw new AppError(
-        "invalid_key_format",
-        "API anahtarının biçimi geçersiz. Groq Console → API Keys bölümünden yalnızca anahtarın kendisini kopyalayın; boşluk, satır sonu veya Türkçe karakter içermemeli.",
-      );
-    }
+    const apiKey = normalizeApiKey(this.settings.apiKey);
     const abort = new AbortController();
     const timeout = setTimeout(() => abort.abort(), 45000);
     try {
       // Native browser fetch rejects an unrelated object as its receiver.
       const fetcher = this.fetcher;
-      const response = await fetcher(API + path, {
+      const response = await fetcher(this.baseUrl + path, {
         method: body ? "POST" : "GET",
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -42,12 +106,12 @@ export class GroqClient {
         if (response.status === 401 || response.status === 403)
           throw new AppError(
             "invalid_key",
-            "Groq anahtarı geçersiz veya erişim izni yok. Ayarları kontrol edin.",
+            `${this.providerLabel} anahtarı geçersiz veya erişim izni yok. Ayarları kontrol edin.`,
           );
         if (response.status === 429)
           throw new AppError(
             "rate_limit",
-            "Groq kullanım kotası aşıldı. Bir süre bekleyin ve Console limitlerini kontrol edin.",
+            `${this.providerLabel} kullanım kotası aşıldı. Bir süre bekleyin ve limitlerinizi kontrol edin.`,
           );
         if (
           response.status === 400 ||
@@ -60,7 +124,7 @@ export class GroqClient {
           );
         throw new AppError(
           "provider_error",
-          "Groq şu anda yanıt veremiyor. Daha sonra yeniden deneyin.",
+          `${this.providerLabel} şu anda yanıt veremiyor. Daha sonra yeniden deneyin.`,
         );
       }
       try {
@@ -68,7 +132,7 @@ export class GroqClient {
       } catch {
         throw new AppError(
           "invalid_response",
-          "Groq geçerli bir yanıt vermedi.",
+          `${this.providerLabel} geçerli bir yanıt vermedi.`,
         );
       }
     } catch (error) {
@@ -77,24 +141,60 @@ export class GroqClient {
         abort.signal.aborted ? "timeout" : "network",
         abort.signal.aborted
           ? "İstek zaman aşımına uğradı. Yeniden deneyin."
-          : "Groq bağlantısı kurulamadı. İnternet bağlantınızı kontrol edin.",
+          : `${this.providerLabel} bağlantısı kurulamadı. İnternet bağlantınızı kontrol edin.`,
       );
     } finally {
       clearTimeout(timeout);
     }
   }
+
   async listModels(): Promise<ModelOption[]> {
     const value = await this.request("/models");
     if (!Array.isArray(value?.data))
       throw new AppError("invalid_response", "Model listesi okunamadı.");
-    return value.data
-      .filter((m: any) => typeof m?.id === "string" && m.active !== false)
-      .map((m: any) => ({ id: m.id }))
-      .sort((a: ModelOption, b: ModelOption) => a.id.localeCompare(b.id));
+    const seen = new Set<string>();
+    const options: ModelOption[] = [];
+    for (const m of value.data) {
+      if (typeof m?.id !== "string" || m.active === false) continue;
+      if (this.provider === "openrouter") {
+        if (!isFreeOpenRouterModel(m.id, m.pricing)) continue;
+      }
+      const id = normalizeProviderModelId(this.provider, m.id);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const displayName =
+        typeof m.display_name === "string" && m.display_name.trim()
+          ? m.display_name.trim()
+          : typeof m.name === "string" && m.name.trim()
+            ? m.name.trim()
+            : undefined;
+      options.push(
+        displayName && displayName !== id
+          ? { id, label: `${id} (${displayName})` }
+          : { id },
+      );
+    }
+    return options.sort((a: ModelOption, b: ModelOption) =>
+      a.id.localeCompare(b.id),
+    );
   }
+
   private async chat(instruction: string, data: unknown): Promise<string> {
+    const selectedModel = normalizeProviderModelId(
+      this.provider,
+      this.settings.model,
+    );
+    if (
+      this.provider === "openrouter" &&
+      !isFreeOpenRouterModel(selectedModel)
+    ) {
+      throw new AppError(
+        "unsupported_model",
+        "OpenRouter'da yalnızca ücretsiz (:free veya openrouter/free) modeller kullanılabilir.",
+      );
+    }
     const value = await this.request("/chat/completions", {
-      model: this.settings.model,
+      model: selectedModel,
       messages: [
         { role: "system", content: instruction },
         { role: "user", content: JSON.stringify(data) },
@@ -105,7 +205,9 @@ export class GroqClient {
     const choice = value?.choices?.[0];
     const content = choice?.message?.content;
     if (
-      choice?.finish_reason !== "stop" ||
+      (choice?.finish_reason !== undefined &&
+        choice?.finish_reason !== null &&
+        choice?.finish_reason !== "stop") ||
       typeof content !== "string" ||
       !content.trim()
     )
@@ -115,37 +217,39 @@ export class GroqClient {
       );
     return content;
   }
+
   async verify(): Promise<void> {
+    const selectedModel = normalizeProviderModelId(
+      this.provider,
+      this.settings.model,
+    );
+    if (
+      this.provider === "openrouter" &&
+      !isFreeOpenRouterModel(selectedModel)
+    ) {
+      throw new AppError(
+        "unsupported_model",
+        "OpenRouter'da yalnızca ücretsiz (:free veya openrouter/free) modeller kullanılabilir.",
+      );
+    }
     const models = await this.listModels();
-    if (!models.some((m) => m.id === this.settings.model))
+    if (!models.some((m) => m.id === selectedModel))
       throw new AppError(
         "unsupported_model",
         "Seçilen model hesabınızda kullanılabilir değil.",
       );
-    const value = parseJSON(
-      await this.chat('Return exactly this JSON object: {"ok":true}.', {
-        check: true,
-      }),
-    );
+    const value = parseJSON(await this.chat(verifyPrompt, { check: true }));
     if (value.ok !== true)
       throw new AppError(
         "unsupported_model",
         "Bu model JSON yanıtı doğrulamasını geçemedi. Başka model seçin.",
       );
   }
+
   async summarize(text: string): Promise<string> {
-    const value = parseJSON(await this.chat(summaryPrompt, { text }));
-    if (
-      typeof value.summary !== "string" ||
-      !value.summary.trim() ||
-      value.summary.length > 6000
-    )
-      throw new AppError(
-        "invalid_response",
-        "Sayfa özeti okunamadı. Yeniden deneyin.",
-      );
-    return value.summary;
+    return parseSummary(await this.chat(summaryPrompt, { text }));
   }
+
   async explain(
     page: PageContent,
     summary: string,

@@ -15,44 +15,105 @@
       <p class="eyebrow">BAĞLANTINI KUR</p>
       <h1>Bir kelimenin<br />ötesine bak.</h1>
       <p class="intro">
-        Kendi Groq anahtarını bağla. Okuduğun metindeki kelimeleri,
+        Kendi API anahtarını (Groq, Google Gemini, OpenRouter ücretsiz modeller)
+        veya ChatGPT hesabını bağla. Okuduğun metindeki kelimeleri,
         kullanıldıkları anlamıyla keşfet.
       </p>
-      <form id="settings-form">
-        <label for="api-key">Groq API anahtarı</label
-        ><input
-          id="api-key"
-          type="password"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="gsk_…"
-        />
-        <p class="hint" id="saved">
-          Anahtar yalnızca bu tarayıcıdaki eklentide saklanır.
-        </p>
-        <button id="load-models" type="button" class="secondary">
-          Modelleri getir</button
-        ><label for="model">Metin modeli</label
-        ><select id="model" required>
-          <option value="">Önce modelleri getir</option>
+
+      <label for="provider">Sağlayıcı</label>
+      <select id="provider">
+        <option value="groq">Groq — Kendi API Anahtarın</option>
+        <option value="gemini">Google Gemini — Kendi API Anahtarın</option>
+        <option value="openrouter">
+          OpenRouter — Ücretsiz Modeller (API Anahtarı)
+        </option>
+        <option value="chatgpt">
+          ChatGPT — Hesabınla Giriş (Yerel Yardımcı)
+        </option>
+      </select>
+      <p class="hint" id="active-provider-summary">
+        Aktif sağlayıcı yükleniyor…
+      </p>
+
+      <section id="groq-panel">
+        <form id="settings-form">
+          <label for="api-key" id="api-key-label">Groq API anahtarı</label
+          ><input
+            id="api-key"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="gsk_…"
+          />
+          <p class="hint" id="saved">
+            Anahtar yalnızca bu tarayıcıdaki eklentide saklanır.
+          </p>
+          <button id="load-models" type="button" class="secondary">
+            Modelleri getir</button
+          ><label for="model">Metin modeli</label
+          ><select id="model" required>
+            <option value="">Önce modelleri getir</option>
+          </select>
+          <p class="hint" id="model-hint">
+            Metin sohbeti ve JSON yanıtını destekleyen bir model seç. Uygunluğu
+            kaydederken doğrulanır.
+          </p>
+          <button type="submit" id="save">
+            Doğrula ve kaydet <span>↗</span></button
+          ><button type="button" id="delete" class="quiet">
+            Kayıtlı anahtarı sil
+          </button>
+        </form>
+      </section>
+
+      <section id="chatgpt-panel" hidden>
+        <div class="status-box">
+          <p id="chatgpt-helper-state">Yardımcı durumu kontrol ediliyor…</p>
+        </div>
+        <div id="chatgpt-install-box" class="install-box" hidden>
+          <p class="hint">
+            ChatGPT ile giriş (OAuth loopback + <code>/v1/responses</code>),
+            güvenlik nedeniyle yerel yardımcı süreç üzerinden çalışır. Kurulum
+            için proje dizininde şu komutu çalıştırın:
+          </p>
+          <code id="chatgpt-install-cmd" class="code-block"
+            >npm run chatgpt:install -- --extension-id EKLENTI_KIMLIGI</code
+          >
+        </div>
+        <button id="chatgpt-signin" type="button" class="secondary">
+          ChatGPT ile giriş yap <span>↗</span>
+        </button>
+        <button id="chatgpt-load-models" type="button" class="secondary">
+          ChatGPT modellerini getir
+        </button>
+        <label for="chatgpt-model">ChatGPT modeli</label>
+        <select id="chatgpt-model">
+          <option value="">Önce ChatGPT ile giriş yapıp modelleri getir</option>
         </select>
         <p class="hint">
-          Metin sohbeti ve JSON yanıtını destekleyen bir model seç. Uygunluğu
-          kaydederken doğrulanır.
+          Hesabında kullanılabilen modeller listelenir ve kaydederken
+          doğrulanır.
         </p>
-        <button type="submit" id="save">Doğrula ve kaydet <span>↗</span></button
-        ><button type="button" id="delete" class="quiet">
-          Kayıtlı anahtarı sil
+        <button type="button" id="chatgpt-save">
+          ChatGPT bağlantısını doğrula ve kaydet <span>↗</span>
         </button>
-      </form>
+        <button type="button" id="chatgpt-signout" class="quiet">
+          ChatGPT oturumunu kapat
+        </button>
+      </section>
+
       <p id="status" role="status" aria-live="polite"></p>
       <footer>
-        <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer"
+        <a
+          id="provider-link"
+          href="https://console.groq.com/keys"
+          target="_blank"
+          rel="noreferrer"
           >Groq'tan API anahtarı al ↗</a
         >
-        <p>
-          Ortak sunucu yok. İstekler doğrudan Groq'a gider.<br />Groq kota ve
-          ücretleri kendi hesabına aittir.
+        <p id="provider-footer-note">
+          Ortak sunucu yok. İstekler doğrudan seçtiğin sağlayıcıya (Groq,
+          Gemini, OpenRouter) veya yerel yardımcın üzerinden OpenAI'a gider.
         </p>
       </footer>
     </main>

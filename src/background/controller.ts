@@ -1,18 +1,19 @@
-import {
-  AppError,
-  failure,
-  type PageState,
-  type PageContent,
-  type Settings,
-  type Meaning,
-  type SelectionContext,
-  type StorageArea,
-  type Result,
-} from "../shared/types";
-import { SessionStore } from "./state";
 import { chunkText } from "../context/chunks";
 import { cacheKey } from "../context/cache";
 import { validatePage } from "../shared/messages";
+import {
+  AppError,
+  failure,
+  type Meaning,
+  type PageContent,
+  type PageState,
+  type ProviderId,
+  type Result,
+  type SelectionContext,
+  type Settings,
+  type StorageArea,
+} from "../shared/types";
+import { SessionStore } from "./state";
 type Client = {
   summarize(text: string): Promise<string>;
   explain(
@@ -25,6 +26,7 @@ export class PageController {
   private store: SessionStore;
   private generations = new Map<number, string>();
   private pending = new Map<string, Promise<Result<Meaning>>>();
+  private sequence = 0;
   constructor(
     area: StorageArea,
     private settings: () => Promise<Settings | null>,
@@ -33,13 +35,13 @@ export class PageController {
   ) {
     this.store = new SessionStore(area);
   }
-  private matches(tabId: number, generation: string) {
-    return this.generations.get(tabId) === generation;
-  }
   reserveStart(tabId: number): string {
-    const generation = crypto.randomUUID();
+    const generation = `g-${Date.now()}-${++this.sequence}`;
     this.generations.set(tabId, generation);
     return generation;
+  }
+  private matches(tabId: number, generation: string): boolean {
+    return this.generations.get(tabId) === generation;
   }
   assertCurrent(tabId: number, generation: string): void {
     if (!this.matches(tabId, generation))
@@ -84,7 +86,7 @@ export class PageController {
       if (!settings?.validated)
         throw new AppError(
           "missing_key",
-          "Önce ayarlardan Groq anahtarını bağlayıp doğrulayın.",
+          "Önce ayarlardan bir sağlayıcı bağlayıp doğrulayın.",
         );
       const state: PageState = {
         tabId,
@@ -241,9 +243,18 @@ export class PageController {
       if (!settings?.validated)
         throw new AppError(
           "missing_key",
-          "Groq anahtarınızı ayarlardan doğrulayın.",
+          "Sağlayıcı ayarlarınızı doğrulayın.",
         );
-      const key = cacheKey(record.state.page, selection, settings.model);
+      const provider: ProviderId = settings.provider ?? "groq";
+      const accountId =
+        settings.provider === "chatgpt" ? settings.accountId : "";
+      const key = cacheKey(
+        record.state.page,
+        selection,
+        settings.model,
+        provider,
+        accountId,
+      );
       const cached = record.cache.find((c) => c.key === key);
       if (cached) return { ok: true, value: cached.value };
       const pendingKey = `${tabId}:${generation}:${key}`;

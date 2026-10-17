@@ -1,12 +1,37 @@
 import { request } from "./shared/messages";
-import type { PageState } from "./shared/types";
+import type { PageState, ProviderId, SettingsStatus } from "./shared/types";
 const start = document.querySelector<HTMLButtonElement>("#start")!;
 const stop = document.querySelector<HTMLButtonElement>("#stop")!;
 const status = document.querySelector<HTMLElement>("#status")!;
+const badge = document.querySelector<HTMLElement>("#provider-badge");
+const note = document.querySelector<HTMLElement>("#provider-note");
 let tabId: number | undefined,
   busy = false,
   configured = false;
 let actionError: string | null = null;
+
+const POPUP_PROVIDER_META: Record<
+  ProviderId,
+  { badge: string; note: string }
+> = {
+  groq: {
+    badge: "GROQ · KENDİ ANAHTARINLA",
+    note: "Bu sayfanın metni, kendi API anahtarınız kullanılarak Groq'a gönderilir.",
+  },
+  gemini: {
+    badge: "GEMINI · KENDİ ANAHTARINLA",
+    note: "Bu sayfanın metni, kendi API anahtarınız kullanılarak Google Gemini API'ye gönderilir.",
+  },
+  openrouter: {
+    badge: "OPENROUTER · ÜCRETSİZ MODEL",
+    note: "Bu sayfanın metni, kendi API anahtarınızla OpenRouter ücretsiz modeline gönderilir.",
+  },
+  chatgpt: {
+    badge: "CHATGPT · HESABINLA",
+    note: "Bu sayfanın metni, kendi ChatGPT hesabın üzerinden OpenAI'a gönderilir.",
+  },
+};
+
 function showState(state: PageState | null) {
   start.disabled =
     busy || !configured || !tabId || state?.status === "preparing";
@@ -22,7 +47,7 @@ function showState(state: PageState | null) {
   }
   if (!configured) {
     status.textContent =
-      "Başlamak için Ayarlar’dan kendi Groq API anahtarını bağla.";
+      "Başlamak için Ayarlar’dan bir sağlayıcı (Groq, Gemini, OpenRouter veya ChatGPT) bağla.";
     return;
   }
   status.dataset.error = String(state?.status === "error");
@@ -36,10 +61,14 @@ function showState(state: PageState | null) {
 }
 async function refresh() {
   if (tabId === undefined) return;
-  const settings = await request<{ configured: boolean }>({
+  const settings = await request<Partial<SettingsStatus>>({
     type: "SETTINGS_STATUS",
   });
-  configured = settings.configured;
+  configured = Boolean(settings.configured);
+  const provider: ProviderId = settings.provider ?? "groq";
+  const meta = POPUP_PROVIDER_META[provider] ?? POPUP_PROVIDER_META.groq;
+  if (badge) badge.textContent = meta.badge;
+  if (note) note.textContent = meta.note;
   showState(await request<PageState | null>({ type: "STATUS", tabId }));
 }
 function showError(error: unknown) {

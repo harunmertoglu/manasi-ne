@@ -24,6 +24,73 @@ it("limits storage access and never replaces working settings on verification fa
   await store.clearSettings();
   expect(await store.getSettings()).toBeNull();
 });
+it("migrates legacy Groq settings and preserves saved Groq, Gemini, OpenRouter, and ChatGPT settings when switching providers", async () => {
+  const area = memoryArea();
+  area.data.settings = {
+    apiKey: "legacy-key",
+    model: "llama-3",
+    validated: true,
+  };
+  const store = new SettingsStore(
+    area,
+    () => ({ verify: async () => {} }),
+    () => ({ verify: async () => {} }),
+  );
+  expect(await store.getSettings()).toEqual({
+    provider: "groq",
+    apiKey: "legacy-key",
+    model: "llama-3",
+    validated: true,
+  });
+
+  await store.validateAndSaveApiKeySettings(
+    "gemini",
+    "AIzaSyGeminiKey",
+    "models/gemini-2.5-flash",
+  );
+  expect(await store.getSettings()).toEqual({
+    provider: "gemini",
+    apiKey: "AIzaSyGeminiKey",
+    model: "gemini-2.5-flash",
+    validated: true,
+  });
+
+  await store.validateAndSaveApiKeySettings(
+    "openrouter",
+    "sk-or-v1-freekey",
+    "openrouter/free",
+  );
+  expect(await store.getSettings()).toEqual({
+    provider: "openrouter",
+    apiKey: "sk-or-v1-freekey",
+    model: "openrouter/free",
+    validated: true,
+  });
+
+  await store.validateAndSaveChatGPTSettings("acct_1", "gpt-5");
+  expect(await store.getSettings()).toEqual({
+    provider: "chatgpt",
+    accountId: "acct_1",
+    model: "gpt-5",
+    validated: true,
+  });
+
+  await store.selectProvider("groq");
+  expect(await store.getSettings()).toEqual({
+    provider: "groq",
+    apiKey: "legacy-key",
+    model: "llama-3",
+    validated: true,
+  });
+
+  await store.selectProvider("gemini");
+  expect(await store.getSettings()).toEqual({
+    provider: "gemini",
+    apiKey: "AIzaSyGeminiKey",
+    model: "gemini-2.5-flash",
+    validated: true,
+  });
+});
 it("rejects website and content senders trying to access privileged settings", () => {
   const id = "extension";
   const content = {
@@ -59,6 +126,20 @@ it("rejects website and content senders trying to access privileged settings", (
       id,
     ),
   ).toEqual({ type: "CLEAR_SETTINGS" });
+  expect(
+    authorizeMessage(
+      { type: "SELECT_PROVIDER", provider: "openrouter" },
+      { id, url: "chrome-extension://extension/options.html" },
+      id,
+    ),
+  ).toEqual({ type: "SELECT_PROVIDER", provider: "openrouter" });
+  expect(() =>
+    authorizeMessage(
+      { type: "SELECT_PROVIDER", provider: "claude" },
+      { id, url: "chrome-extension://extension/options.html" },
+      id,
+    ),
+  ).toThrow();
 });
 it("takes content tab only from sender and rejects subframes/invalid payloads", () => {
   const sender = {

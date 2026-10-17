@@ -187,6 +187,24 @@ footer p {
 .status-box p {
   margin: 0;
 }
+.install-box {
+  border: 1px dashed #b5c2b1;
+  border-radius: 10px;
+  padding: 13px;
+  background: #f9f8f2;
+  margin-bottom: 18px;
+}
+.code-block {
+  display: block;
+  padding: 10px;
+  background: #214d3b;
+  color: #f5f3eb;
+  border-radius: 7px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
 .row {
   display: flex;
   gap: 10px;

@@ -9,5 +9,12 @@
     "types": ["chrome", "node"],
     "skipLibCheck": true
   },
-  "include": ["src", "tests", "vitest.config.ts", "e2e", "playwright.config.ts"]
+  "include": [
+    "src",
+    "helper",
+    "tests",
+    "vitest.config.ts",
+    "e2e",
+    "playwright.config.ts"
+  ]
 }
