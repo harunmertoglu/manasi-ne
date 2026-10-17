@@ -24,6 +24,12 @@ export function resolveNativeMessagingDirs(
         "Brave-Browser",
         "NativeMessagingHosts",
       ),
+      "brave-origin": path.join(
+        base,
+        "BraveSoftware",
+        "Brave-Origin",
+        "NativeMessagingHosts",
+      ),
       edge: path.join(base, "Microsoft Edge", "NativeMessagingHosts"),
     };
   }
@@ -36,6 +42,12 @@ export function resolveNativeMessagingDirs(
       config,
       "BraveSoftware",
       "Brave-Browser",
+      "NativeMessagingHosts",
+    ),
+    "brave-origin": path.join(
+      config,
+      "BraveSoftware",
+      "Brave-Origin",
       "NativeMessagingHosts",
     ),
     edge: path.join(config, "microsoft-edge", "NativeMessagingHosts"),

@@ -24,6 +24,12 @@ export function resolveNativeMessagingDirs(
         "Brave-Browser",
         "NativeMessagingHosts",
       ),
+      "brave-origin": path.join(
+        base,
+        "BraveSoftware",
+        "Brave-Origin",
+        "NativeMessagingHosts",
+      ),
       edge: path.join(base, "Microsoft Edge", "NativeMessagingHosts"),
     };
   }
@@ -36,6 +42,12 @@ export function resolveNativeMessagingDirs(
       config,
       "BraveSoftware",
       "Brave-Browser",
+      "NativeMessagingHosts",
+    ),
+    "brave-origin": path.join(
+      config,
+      "BraveSoftware",
+      "Brave-Origin",
       "NativeMessagingHosts",
     ),
     edge: path.join(config, "microsoft-edge", "NativeMessagingHosts"),
@@ -101,6 +113,8 @@ async function runCli() {
       extensionId = arg.slice("--extension-id=".length);
     } else if (arg === "--browser" && args[i + 1]) {
       browsers.push(args[++i]);
+    } else if (arg.startsWith("--browser=")) {
+      browsers.push(arg.slice("--browser=".length));
     } else if (arg === "--print") {
       printOnly = true;
     }
@@ -108,7 +122,7 @@ async function runCli() {
 
   if (!extensionId) {
     console.error(
-      "Kullanım: npm run chatgpt:install -- --extension-id <32-karakterli-eklenti-id> [--browser chrome|chromium|brave|edge] [--print]",
+      "Kullanım: npm run chatgpt:install -- --extension-id <32-karakterli-eklenti-id> [--browser chrome|chromium|brave|brave-origin|edge] [--print]",
     );
     process.exit(1);
   }
