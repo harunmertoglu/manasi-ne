@@ -15,6 +15,13 @@ export class GroqClient {
     private fetcher: typeof fetch = fetch,
   ) {}
   private async request(path: string, body?: unknown): Promise<any> {
+    const apiKey = this.settings.apiKey.trim();
+    if (!apiKey || !/^[\x21-\x7e]+$/.test(apiKey)) {
+      throw new AppError(
+        "invalid_key_format",
+        "API anahtarının biçimi geçersiz. Groq Console → API Keys bölümünden yalnızca anahtarın kendisini kopyalayın; boşluk, satır sonu veya Türkçe karakter içermemeli.",
+      );
+    }
     const abort = new AbortController();
     const timeout = setTimeout(() => abort.abort(), 45000);
     try {
@@ -23,7 +30,7 @@ export class GroqClient {
       const response = await fetcher(API + path, {
         method: body ? "POST" : "GET",
         headers: {
-          Authorization: `Bearer ${this.settings.apiKey}`,
+          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
         ...(body ? { body: JSON.stringify(body) } : {}),

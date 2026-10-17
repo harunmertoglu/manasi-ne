@@ -159,3 +159,30 @@ it("calls fetch without a GroqClient receiver, as required by the browser API", 
     new GroqClient(settings, browserFetch).listModels(),
   ).resolves.toEqual([{ id: "text-model" }]);
 });
+
+it.each(["yanlış anahtar", "gsk_ab cd", "gsk_ab\ncd", "gsk_abçd"])(
+  "rejects a malformed API key before making a network request: %s",
+  async (apiKey) => {
+    let requests = 0;
+    const client = new GroqClient({ ...settings, apiKey }, async () => {
+      requests++;
+      return new Response(JSON.stringify({ data: [] }));
+    });
+    await expect(client.listModels()).rejects.toMatchObject({
+      code: "invalid_key_format",
+    });
+    expect(requests).toBe(0);
+  },
+);
+it("normalizes only surrounding whitespace in a pasted API key", async () => {
+  let authorization: string | null = null;
+  const client = new GroqClient(
+    { ...settings, apiKey: "  example-key\n" },
+    async (_url, init) => {
+      authorization = new Headers(init?.headers).get("Authorization");
+      return new Response(JSON.stringify({ data: [] }));
+    },
+  );
+  await client.listModels();
+  expect(authorization).toBe("Bearer example-key");
+});
