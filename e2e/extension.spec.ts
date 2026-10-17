@@ -20,7 +20,10 @@ test("configure own key, activate page, explain English/Turkish, cache, invalida
     await worker.evaluate(() => {
       const calls: any[] = [];
       (globalThis as any).__testCalls = calls;
-      globalThis.fetch = async (url, init) => {
+      globalThis.fetch = async function (this: unknown, url, init) {
+        // Native WorkerGlobalScope.fetch rejects an unrelated object receiver.
+        if (this !== undefined && this !== globalThis)
+          throw new TypeError("Illegal invocation");
         if (!String(url).startsWith("https://api.groq.com/openai/v1/"))
           throw new Error("Unexpected network URL");
         if (init?.method === "GET")

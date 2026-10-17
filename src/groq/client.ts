@@ -18,7 +18,9 @@ export class GroqClient {
     const abort = new AbortController();
     const timeout = setTimeout(() => abort.abort(), 45000);
     try {
-      const response = await this.fetcher(API + path, {
+      // Native browser fetch rejects an unrelated object as its receiver.
+      const fetcher = this.fetcher;
+      const response = await fetcher(API + path, {
         method: body ? "POST" : "GET",
         headers: {
           Authorization: `Bearer ${this.settings.apiKey}`,

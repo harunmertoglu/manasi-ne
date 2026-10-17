@@ -142,3 +142,20 @@ it("reads model list and verifies selected model before chat", async () => {
     "/openai/v1/chat/completions",
   ]);
 });
+
+it("calls fetch without a GroqClient receiver, as required by the browser API", async () => {
+  const browserFetch = async function (this: unknown) {
+    if (this !== undefined && this !== globalThis) {
+      throw new TypeError("Illegal invocation");
+    }
+    return new Response(
+      JSON.stringify({
+        object: "list",
+        data: [{ id: "text-model", object: "model", active: true }],
+      }),
+    );
+  };
+  await expect(
+    new GroqClient(settings, browserFetch).listModels(),
+  ).resolves.toEqual([{ id: "text-model" }]);
+});
