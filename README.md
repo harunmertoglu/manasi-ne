@@ -223,8 +223,14 @@ npm run chatgpt:build
 # Yerel ChatGPT yardımcısını derle ve Native Messaging manifestini kaydet
 npm run chatgpt:install -- --extension-id <32-karakterli-eklenti-id> [--browser chrome|chromium|brave|brave-origin|edge] [--print]
 
-# Vitest birim ve entegrasyon testlerini çalıştır
+# Eklentiyi derleyip Vitest birim ve entegrasyon testlerini çalıştır
 npm test
+
+# Vitest'i izleme modunda çalıştır
+npm run test:watch
+
+# Kaynak dosyaları Prettier ile biçimlendir
+npm run format
 
 # Chromium üzerinde Playwright uçtan uca eklenti testlerini çalıştır
 npx playwright install chromium
